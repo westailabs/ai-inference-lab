@@ -219,7 +219,79 @@ This lab is designed to stay within **GCP Free Tier** for learning:
 | VPC / Firewall | Free | Free |
 | **Global IP** | **$0.01/hr while unattached** | ~$7/mo if idle |
 
-> ⚠️ **Tear down when not studying:** `terraform destroy` to avoid charges on the global IP and LB forwarding rules.
+---
+
+## 💸 Teardown / Cost Control
+
+### What costs money when idle
+
+| Resource | Idle Cost | Why |
+|----------|-----------|-----|
+| **Global Static IP** | ~$0.01/hr (~$7/mo) | Charged when reserved, even if no traffic |
+| **LB Forwarding Rules** (×2) | ~$0.025/hr each (~$36/mo total) | Per-rule hourly charge |
+| **SSL Certificate** | Free | Google-managed, no charge |
+| **Cloud Run** | **Free when idle** | Scale-to-zero = $0 with no requests |
+| **VPC / Firewall / Subnet** | **Free** | No charge for network resources |
+| **Secret Manager** | **Free** | Under 6 active versions = free tier |
+| **Monitoring / Alerts** | **Free** | Under 500 time series = free tier |
+| **IAM / Service Account** | **Free** | No charge |
+
+> **Bottom line:** The load balancer stack is the only real cost (~$43/mo if left running). Everything else is free at this scale.
+
+### Option 1: Full teardown (recommended after study sessions)
+
+```bash
+cd ~/projects/gcp_projects/ai-inference-lab
+terraform destroy
+# Type "yes" when prompted — destroys ALL 29+ resources
+```
+
+Rebuild anytime with `terraform apply` — takes ~3 minutes.
+
+### Option 2: Partial teardown (destroy only the expensive LB)
+
+Keep Cloud Run, VPC, IAM, secrets, and monitoring (all free) but remove the load balancer:
+
+```bash
+# Destroy only the LB resources (saves ~$43/mo)
+terraform destroy \
+  -target=google_compute_global_forwarding_rule.https \
+  -target=google_compute_global_forwarding_rule.http_redirect \
+  -target=google_compute_target_https_proxy.default \
+  -target=google_compute_target_http_proxy.redirect \
+  -target=google_compute_url_map.default \
+  -target=google_compute_url_map.http_redirect \
+  -target=google_compute_backend_service.default \
+  -target=google_compute_region_network_endpoint_group.cloud_run_neg \
+  -target=google_compute_managed_ssl_certificate.default \
+  -target=google_compute_global_address.default
+```
+
+Your Cloud Run service stays live at its `*.run.app` URL — just no custom domain or LB.
+
+To rebuild the LB later:
+```bash
+terraform apply  # Terraform recreates only the missing resources
+```
+
+### Option 3: Verify what's running (cost audit)
+
+```bash
+# Check current Terraform resource count
+terraform state list | wc -l
+
+# Check the global IP (this is the $7/mo one)
+terraform state show google_compute_global_address.default 2>/dev/null && \
+  echo "⚠️  Global IP is active — costs ~$0.01/hr" || \
+  echo "✅ No global IP — no charge"
+
+# Check forwarding rules (these are the $36/mo ones)
+terraform state list | grep forwarding_rule && \
+  echo "⚠️  Forwarding rules active — costs ~$0.025/hr each" || \
+  echo "✅ No forwarding rules — no charge"
+```
+
+> 💡 **Pro tip:** Set a calendar reminder or billing alert at $5/mo so you catch forgotten resources early.
 
 ---
 
