@@ -413,6 +413,47 @@ phase/6-monitoring      ← Alerts, uptime checks, metrics
 
 ---
 
+## Teardown / Cost Control
+
+**Full teardown** (removes everything):
+```bash
+terraform destroy
+# Type "yes" when prompted — destroys all 29+ resources
+```
+
+**Partial teardown** (keep Cloud Run, remove the expensive LB):
+```bash
+# The global IP + forwarding rules cost ~$7/mo even idle
+terraform destroy -target=google_compute_global_forwarding_rule.https \
+  -target=google_compute_global_forwarding_rule.http_redirect \
+  -target=google_compute_target_https_proxy.default \
+  -target=google_compute_target_http_proxy.redirect \
+  -target=google_compute_url_map.default \
+  -target=google_compute_url_map.http_redirect \
+  -target=google_compute_backend_service.default \
+  -target=google_compute_region_network_endpoint_group.cloud_run_neg \
+  -target=google_compute_global_address.default \
+  -target=google_compute_managed_ssl_certificate.default
+```
+
+**What costs money when idle:**
+| Resource | Idle Cost | Notes |
+|----------|-----------|-------|
+| Global static IP | ~$7/mo | Billed hourly while reserved |
+| LB forwarding rules | ~$18/mo each | 2 rules (HTTP + HTTPS) |
+| Cloud Run | **$0** | Scales to zero |
+| VPC / Firewall | **$0** | Free |
+| Secret Manager | **$0** | Free tier covers it |
+| Monitoring | **$0** | Free tier covers it |
+
+**To rebuild after teardown:**
+```bash
+terraform plan -out=tfplan
+terraform apply tfplan
+```
+
+---
+
 ## License
 
 MIT — built for learning. Use it, fork it, make it yours.
